@@ -1,0 +1,34 @@
+Build a GenAI-powered web platform that helps users detect, understand, and verify potentially AI-generated or manipulated images, audio, and video before they trust or share them.
+
+The solution should analyze uploaded or linked media, identify potential signs of AI generation or manipulation, explain the reasoning behind its assessment in an understandable manner, and provide source-traceable context to help users verify the authenticity and credibility of the content.
+
+The platform should empower journalists, researchers, and everyday citizens to make informed decisions in an era where synthetic and misleading media can spread rapidly.
+
+## 🚀 Submission & Evaluation
+
+### 📦 Submission
+
+* *GitHub Repository:* Submit the *`.git` repository link* with your project source code.
+* *Deployment:* Deploy your solution on *any suitable platform* such as Vercel, Netlify, Google Cloud, etc.
+* *LinkedIn:* Share your project and briefly explain how it addresses the given problem statement.
+* *Attempts:* You get *2 submission attempts*.
+* After each submission, you receive *evaluation feedback* to help improve your solution.
+
+### 🏆 Evaluation
+
+Your solution will be evaluated on:
+
+* *Code Quality*
+* *Security*
+* *Efficiency*
+* *Testing*
+* *Accessibility*
+* *Problem Alignment*
+
+### ⚡ Scoring Rule
+
+* If you submit *only once → your 1st submission score counts*.
+* If you submit *twice → your 2nd submission score counts*, *even if it is lower than your 1st score*.
+* Once the submission window closes, no further attempts are allowed.
+
+> *Build → Submit → Analyse → Improve → Submit. Choose your second submission wisely. ⚡*

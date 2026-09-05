@@ -1,0 +1,22 @@
+/*
+  VeriLens AI — HTTP Security Headers
+  Configured for Netlify deployment.
+  For Vercel, use vercel.json instead.
+*/
+
+/*
+  Content-Security-Policy:
+  - Restricts script sources to self
+  - Allows Google Fonts for Inter typeface
+  - Allows Unsplash images for demo case previews
+  - Blocks all framing (clickjacking protection)
+*/
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://images.unsplash.com; connect-src 'self' https://api.thehive.ai https://generativelanguage.googleapis.com; frame-ancestors 'none';"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
