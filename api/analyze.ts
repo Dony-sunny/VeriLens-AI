@@ -26,6 +26,8 @@ import {
   HIGH_SIGNAL_THRESHOLD,
   LOW_SIGNAL_THRESHOLD,
   DISAGREEMENT_DELTA,
+  HIVE_API_TIMEOUT_MS,
+  GEMINI_TIMEOUT_MS,
 } from './thresholds';
 import type {
   NormalizedAnalysisResult,
@@ -50,107 +52,136 @@ function getCredentials() {
 
 // ─── Hive AI Detection ────────────────────────
 
-async function callHive(
-  fileBuffer: Buffer,
-  mimeType: string,
-  mediaType: ServerMediaType,
-  apiKey: string
-): Promise<HiveProviderResult> {
-  const base: HiveProviderResult = {
-    status: 'success',
+function emptyHiveResult(): HiveProviderResult {
+  return {
+    status: 'failed',
     aiGeneratedScore: null,
     deepfakeScore: null,
     generator: null,
     c2pa: null,
     error: null,
   };
+}
 
-  const aiModel =
-    mediaType === 'video'
-      ? 'ai-generated-video-detection'
-      : 'ai-generated-image-detection';
-  const deepfakeModel = mediaType === 'image' ? 'deepfake-image-detection' : null;
+function parseHiveV3Result(data: unknown): HiveProviderResult {
+  const result = emptyHiveResult();
+  const output = (data as { output?: Array<{ classes?: Array<{ class?: string; value?: number }> }> })
+    .output?.[0];
+  const classes = output?.classes ?? [];
+  const findValue = (names: string[]) => {
+    const match = classes.find((entry) => entry.class && names.includes(entry.class));
+    return typeof match?.value === 'number' ? Math.round(match.value * 100) : null;
+  };
 
-  async function callModel(model: string): Promise<unknown> {
-    const form = new FormData();
-    const fieldName = mediaType === 'video' ? 'video' : 'image';
-    form.append(fieldName, new Blob([fileBuffer], { type: mimeType }), 'media');
-    form.append('model', model);
+  result.status = 'success';
+  result.aiGeneratedScore = findValue(['ai_generated', 'ai-generated', 'yes']);
+  result.deepfakeScore = findValue(['deepfake']);
 
-    const res = await fetch('https://api.thehive.ai/api/v2/task/sync', {
-      method: 'POST',
-      headers: { Authorization: `Token ${apiKey}` },
-      body: form,
-      signal: createTimeoutSignal(),
-    });
+  const rawOutput = output as Record<string, unknown> | undefined;
+  result.c2pa = (rawOutput?.['c2pa'] as Record<string, unknown> | undefined) ?? null;
+  return result;
+}
 
-    if (process.env['NODE_ENV'] !== 'production') {
-      console.log(`[VeriLens Debug] Hive HTTP status (${model}): ${res.status}`);
-    }
-
-    const text = await res.text();
-    if (!res.ok) {
-      let msg = `HTTP ${res.status}`;
-      try {
-        const parsed = JSON.parse(text) as Record<string, unknown>;
-        msg = (parsed['message'] as string) ?? msg;
-      } catch {
-        // ignore parse error
-      }
-      throw new Error(`Hive API error: ${msg}`);
-    }
-
-    try {
-      return JSON.parse(text);
-    } catch {
-      throw new Error('Hive returned malformed JSON');
-    }
-  }
-
-  function parseHiveScore(data: unknown): number | null {
-    try {
-      const output = (data as Record<string, unknown>)['status'] as unknown[];
-      const classes = (
-        (output?.[0] as Record<string, unknown>)?.['response'] as Record<string, unknown>
-      )?.['output']?.[0] as Record<string, unknown>;
-      const cls = (classes?.['classes'] as Array<{ class: string; score: number }>) ?? [];
-      const hit = cls.find((c) => c.class === 'yes' || c.class === 'ai-generated');
-      return hit ? Math.round(hit.score * 100) : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function parseC2pa(data: unknown): Record<string, unknown> | null {
-    try {
-      const output = (data as Record<string, unknown>)['status'] as unknown[];
-      const classes = (
-        (output?.[0] as Record<string, unknown>)?.['response'] as Record<string, unknown>
-      )?.['output']?.[0] as Record<string, unknown>;
-      return (classes?.['c2pa'] as Record<string, unknown>) ?? null;
-    } catch {
-      return null;
-    }
+async function fallbackHiveWithGemini(
+  fileBuffer: Buffer,
+  mimeType: string,
+  geminiKey: string | null
+): Promise<HiveProviderResult> {
+  const result = emptyHiveResult();
+  if (!geminiKey) {
+    result.error = 'Hive failed and Gemini fallback is not configured.';
+    return result;
   }
 
   try {
-    const aiData = await callModel(aiModel);
-    base.aiGeneratedScore = parseHiveScore(aiData);
-    base.c2pa = parseC2pa(aiData);
-
-    if (deepfakeModel) {
-      try {
-        const dfData = await callModel(deepfakeModel);
-        base.deepfakeScore = parseHiveScore(dfData);
-      } catch {
-        base.deepfakeScore = null;
+    const prompt = `Analyze only the visible pixels of this image for signs of AI generation. Do not infer metadata, EXIF, or provenance. Return JSON only with artifact_score, classifier_score, confidence as numbers from 0 to 1, and explanation as a short sentence.`;
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: mimeType, data: fileBuffer.toString('base64') } },
+            ],
+          }],
+          generationConfig: { responseMimeType: 'application/json', temperature: 0.1 },
+        }),
+        signal: createTimeoutSignal(GEMINI_TIMEOUT_MS),
       }
+    );
+
+    if (!response.ok) throw new Error(`Gemini fallback HTTP ${response.status}`);
+    const body = await response.json() as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    const text = body.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
+    const parsed = JSON.parse(text.replace(/```json\n?|```/g, '').trim()) as {
+      artifact_score?: number;
+      classifier_score?: number;
+      explanation?: string;
+    };
+    const aiScore = typeof parsed.classifier_score === 'number'
+      ? parsed.classifier_score
+      : typeof parsed.artifact_score === 'number' ? parsed.artifact_score : 0;
+
+    return {
+      status: 'success',
+      aiGeneratedScore: Math.round(Math.max(0, Math.min(1, aiScore)) * 100),
+      deepfakeScore: typeof parsed.artifact_score === 'number'
+        ? Math.round(Math.max(0, Math.min(1, parsed.artifact_score)) * 100)
+        : null,
+      generator: null,
+      c2pa: null,
+      error: parsed.explanation ?? 'Hive unavailable; Gemini visual fallback used.',
+    };
+  } catch {
+    result.error = 'Hive and Gemini visual detection were unavailable.';
+    return result;
+  }
+}
+
+async function callHive(
+  fileBuffer: Buffer,
+  mimeType: string,
+  mediaType: ServerMediaType,
+  apiKey: string,
+  geminiKey: string | null
+): Promise<HiveProviderResult> {
+  if (mediaType !== 'image') {
+    return { ...emptyHiveResult(), error: 'Hive v3 image detection is only used for images.' };
+  }
+
+  try {
+    const response = await fetch(
+      'https://api.thehive.ai/api/v3/hive/ai-generated-and-deepfake-content-detection',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          input: [{ media_base64: `data:${mimeType};base64,${fileBuffer.toString('base64')}` }],
+        }),
+        signal: createTimeoutSignal(HIVE_API_TIMEOUT_MS),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Hive API error: HTTP ${response.status}`);
     }
 
-    return base;
+    return parseHiveV3Result(await response.json());
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : 'Hive request failed';
-    return { ...base, status: 'failed', error: errMsg };
+    const hiveError = err instanceof DOMException && err.name === 'TimeoutError'
+      ? 'Hive request timed out while processing the media.'
+      : err instanceof Error ? err.message : 'Hive request failed';
+    const fallback = await fallbackHiveWithGemini(fileBuffer, mimeType, geminiKey);
+    if (fallback.status === 'success') return fallback;
+    return { ...fallback, error: `${hiveError} ${fallback.error ?? ''}`.trim() };
   }
 }
 
@@ -327,7 +358,7 @@ STRICT RULES:
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: { maxOutputTokens: 600, temperature: 0.1 },
         }),
-        signal: createTimeoutSignal(),
+        signal: createTimeoutSignal(GEMINI_TIMEOUT_MS),
       }
     );
 
@@ -604,7 +635,7 @@ export default async function handler(
 
   const [hiveResult, seResult] = await Promise.all([
     creds.hiveKey
-      ? callHive(fileBuffer, mimeType, mediaType, creds.hiveKey)
+      ? callHive(fileBuffer, mimeType, mediaType, creds.hiveKey, creds.geminiKey)
       : Promise.resolve(unavailableHive),
     creds.seUser && creds.seSecret
       ? callSightengine(fileBuffer, mimeType, mediaType, creds.seUser, creds.seSecret)

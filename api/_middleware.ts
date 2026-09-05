@@ -108,8 +108,8 @@ export function sanitizeSourceUrl(
  * Create an AbortSignal that times out after API_TIMEOUT_MS.
  * Used to enforce timeouts on all external API calls.
  */
-export function createTimeoutSignal(): AbortSignal {
-  return AbortSignal.timeout(API_TIMEOUT_MS);
+export function createTimeoutSignal(timeoutMs = API_TIMEOUT_MS): AbortSignal {
+  return AbortSignal.timeout(timeoutMs);
 }
 
 /**
