@@ -41,12 +41,17 @@ import type {
 // ─── Credentials ──────────────────────────────
 // Credentials are read here, never logged, never returned to client.
 
+function readSecret(name: string): string | null {
+  const value = process.env[name]?.trim();
+  return value || null;
+}
+
 function getCredentials() {
   return {
-    hiveKey: process.env['HIVE_API_KEY'] ?? null,
-    seUser: process.env['SIGHTENGINE_API_USER'] ?? null,
-    seSecret: process.env['SIGHTENGINE_API_SECRET'] ?? null,
-    geminiKey: process.env['GEMINI_API_KEY'] ?? null,
+    hiveKey: readSecret('HIVE_API_KEY'),
+    seUser: readSecret('SIGHTENGINE_API_USER'),
+    seSecret: readSecret('SIGHTENGINE_API_SECRET'),
+    geminiKey: readSecret('GEMINI_API_KEY'),
   };
 }
 
@@ -220,7 +225,10 @@ async function callSightengine(
 
     if ((data['status'] as string) === 'failure') {
       const errObj = data['error'] as { message?: string; code?: number } | undefined;
-      const errMsg = errObj?.message ?? `Sightengine request failed (code ${errObj?.code ?? 'unknown'})`;
+      const errCode = errObj?.code;
+      const errMsg = errCode === 20 || errCode === 21
+        ? 'Sightengine credentials were rejected. Check SIGHTENGINE_API_USER and SIGHTENGINE_API_SECRET in Vercel Production environment variables.'
+        : errObj?.message ?? `Sightengine request failed (code ${errCode ?? 'unknown'})`;
       return {
         status: 'failed',
         aiGeneratedScore: null,
