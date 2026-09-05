@@ -204,6 +204,17 @@ async function callSightengine(
       ? 'https://api.sightengine.com/1.0/video/check-sync.json'
       : 'https://api.sightengine.com/1.0/check.json';
 
+  console.log('[VeriLens Debug] Sightengine request', {
+    endpoint,
+    mediaType,
+    mimeType,
+    fileBytes: fileBuffer.length,
+    hasApiUser: Boolean(apiUser),
+    hasApiSecret: Boolean(apiSecret),
+    apiUserLength: apiUser.length,
+    apiSecretLength: apiSecret.length,
+  });
+
   const form = new FormData();
   form.append('media', new Blob([new Uint8Array(fileBuffer)], { type: mimeType }), 'media');
   form.append('models', 'genai,deepfake');
@@ -217,15 +228,22 @@ async function callSightengine(
       signal: createTimeoutSignal(),
     });
 
-    if (process.env['NODE_ENV'] !== 'production') {
-      console.log(`[VeriLens Debug] Sightengine HTTP status: ${res.status}`);
-    }
+    console.log('[VeriLens Debug] Sightengine response', {
+      status: res.status,
+      statusText: res.statusText,
+      contentType: res.headers.get('content-type'),
+    });
 
     const data = (await res.json()) as Record<string, unknown>;
 
     if ((data['status'] as string) === 'failure') {
       const errObj = data['error'] as { message?: string; code?: number } | undefined;
       const errCode = errObj?.code;
+      console.error('[VeriLens Debug] Sightengine provider failure', {
+        status: data['status'],
+        code: errCode ?? null,
+        message: errObj?.message ?? null,
+      });
       const errMsg = errCode === 20 || errCode === 21
         ? 'Sightengine credentials were rejected. Check SIGHTENGINE_API_USER and SIGHTENGINE_API_SECRET in Vercel Production environment variables.'
         : errObj?.message ?? `Sightengine request failed (code ${errCode ?? 'unknown'})`;
@@ -255,6 +273,12 @@ async function callSightengine(
     };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : 'Sightengine request failed';
+    console.error('[VeriLens Debug] Sightengine request exception', {
+      name: err instanceof Error ? err.name : 'UnknownError',
+      message: errMsg,
+      hasApiUser: Boolean(apiUser),
+      hasApiSecret: Boolean(apiSecret),
+    });
     return {
       status: 'failed',
       aiGeneratedScore: null,
@@ -501,13 +525,14 @@ export default async function handler(
   const creds = getCredentials();
   const contentType = ((req.headers as Record<string, string>)['content-type']) ?? '';
 
-  if (process.env['NODE_ENV'] !== 'production') {
-    console.log(`[VeriLens] /api/analyze called (${req.method})`);
-    console.log(`[VeriLens] Hive API Key: ${creds.hiveKey ? 'configured' : 'missing'}`);
-    console.log(`[VeriLens] Sightengine User: ${creds.seUser ? 'configured' : 'missing'}`);
-    console.log(`[VeriLens] Sightengine Secret: ${creds.seSecret ? 'configured' : 'missing'}`);
-    console.log(`[VeriLens] Gemini API Key: ${creds.geminiKey ? 'configured' : 'missing'}`);
-  }
+  console.log('[VeriLens] /api/analyze credentials', {
+    method: req.method,
+    hive: creds.hiveKey ? 'configured' : 'missing',
+    sightengineUser: creds.seUser ? 'configured' : 'missing',
+    sightengineSecret: creds.seSecret ? 'configured' : 'missing',
+    gemini: creds.geminiKey ? 'configured' : 'missing',
+    nodeEnv: process.env['NODE_ENV'] ?? 'unset',
+  });
 
   let fileBuffer: Buffer | null = null;
   let mimeType = '';
