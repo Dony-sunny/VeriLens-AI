@@ -32,9 +32,10 @@ export const API_TIMEOUT_MS = 30_000;
 
 /**
  * Maximum file size per media type in bytes.
+ * Set to 4.5 MB to align with Vercel Serverless Function payload limits.
  */
 export const MAX_FILE_SIZE: Record<string, number> = {
-  image: 100 * 1024 * 1024,  // 100 MB
-  video: 200 * 1024 * 1024,  // 200 MB
-  audio: 50 * 1024 * 1024,   // 50 MB
+  image: Math.floor(4.5 * 1024 * 1024),  // 4.5 MB
+  video: Math.floor(4.5 * 1024 * 1024),  // 4.5 MB
+  audio: Math.floor(4.5 * 1024 * 1024),  // 4.5 MB
 };

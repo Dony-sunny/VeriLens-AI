@@ -67,8 +67,8 @@ describe('Invalid file type', () => {
 // ─── 4. Oversized file ───────────────────────
 describe('Oversized file', () => {
   it('rejects a file that exceeds the size limit', () => {
-    // Create a mock oversized file (simulate > 100MB)
-    const oversizedContent = new Uint8Array(101 * 1024 * 1024); // 101 MB
+    // Create a mock oversized file (simulate > 4.5MB)
+    const oversizedContent = new Uint8Array(6 * 1024 * 1024); // 6 MB
     const file = new File([oversizedContent], 'huge.jpg', { type: 'image/jpeg' });
     const result = validateFile(file);
     expect(result.valid).toBe(false);

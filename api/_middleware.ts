@@ -10,6 +10,7 @@ import type { ServerMediaType } from './types';
 /** Supported MIME types and their media categories */
 const MIME_MAP: Record<string, ServerMediaType> = {
   'image/jpeg': 'image',
+  'image/jpg': 'image',
   'image/png': 'image',
   'image/gif': 'image',
   'image/webp': 'image',
@@ -21,7 +22,9 @@ const MIME_MAP: Record<string, ServerMediaType> = {
   'video/avi': 'video',
   'video/x-matroska': 'video',
   'audio/mpeg': 'audio',
+  'audio/mp3': 'audio',
   'audio/wav': 'audio',
+  'audio/x-wav': 'audio',
   'audio/ogg': 'audio',
   'audio/mp4': 'audio',
   'audio/flac': 'audio',
@@ -33,10 +36,14 @@ const MIME_MAP: Record<string, ServerMediaType> = {
 const BLOCKED_SCHEMES = ['javascript:', 'data:', 'file:', 'ftp:', 'vbscript:'];
 
 /**
- * Private/loopback IP patterns — block to prevent SSRF.
+ * Private/loopback IP patterns, link-local (169.254.x.x), cloud metadata (169.254.169.254),
+ * IPv6 loopback/link-local, and internal domain suffixes — block to prevent SSRF.
  */
 const PRIVATE_IP_RE =
-  /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.0\.0\.0|::1)/i;
+  /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.0\.0\.0|169\.254\.|::1|0:0:0:0:0:0:0:1|fe80:|fd00:|fc00:)/i;
+
+const PRIVATE_SUFFIX_RE =
+  /(\.local|\.internal|\.lan|\.home|\.localhost)$/i;
 
 /**
  * Determine the ServerMediaType from a MIME type string.
@@ -87,8 +94,8 @@ export function sanitizeSourceUrl(
     return { valid: false, error: `URL scheme '${parsed.protocol}' is not permitted.` };
   }
 
-  if (PRIVATE_IP_RE.test(parsed.hostname)) {
-    return { valid: false, error: 'URL points to a private or loopback address.' };
+  if (PRIVATE_IP_RE.test(parsed.hostname) || PRIVATE_SUFFIX_RE.test(parsed.hostname)) {
+    return { valid: false, error: 'URL points to a private, loopback, or internal network address.' };
   }
 
   // Strip fragment to prevent hash-based injection

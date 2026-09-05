@@ -224,7 +224,7 @@ export function LandingPage() {
                 analysisStatus={state.status}
                 analysisProgress={state.progress}
                 stepLabel={stepLabel}
-                validationError={validationError}
+                validationError={validationError || state.error}
                 onFileSelect={handleFileSelect}
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
@@ -285,6 +285,22 @@ export function LandingPage() {
                   riskLevel={activeResult.riskLevel}
                   riskMessage={activeResult.riskMessage}
                 />
+              </div>
+            ) : state.error ? (
+              <div className="lg:col-span-2 flex items-center justify-center">
+                <GlassCard className="p-8 text-center max-w-md border-red-500/30 bg-red-500/5">
+                  <div className="mb-4 mx-auto h-16 w-16 rounded-2xl border border-red-500/30 bg-red-500/10 flex items-center justify-center">
+                    <Info className="h-8 w-8 text-red-400" />
+                  </div>
+                  <h3 className="mb-2 text-lg font-bold text-red-300">Analysis Error</h3>
+                  <p className="text-sm text-slate-300 mb-5 leading-relaxed">{state.error}</p>
+                  <button
+                    onClick={reset}
+                    className="px-4 py-2 text-xs font-semibold text-white bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+                  >
+                    Dismiss & Try Again
+                  </button>
+                </GlassCard>
               </div>
             ) : (
               <div className="lg:col-span-2 flex items-center justify-center">

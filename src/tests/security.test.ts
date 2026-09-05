@@ -95,6 +95,27 @@ describe('sanitiseUrl', () => {
     expect(sanitiseUrl('http://192.168.1.1/data').valid).toBe(false);
   });
 
+  it('rejects 10.x.x.x URLs', () => {
+    expect(sanitiseUrl('http://10.0.0.1/internal').valid).toBe(false);
+  });
+
+  it('rejects 172.16-31.x.x URLs', () => {
+    expect(sanitiseUrl('http://172.16.0.1/admin').valid).toBe(false);
+  });
+
+  it('rejects 169.254.x.x link-local & cloud metadata URLs (169.254.169.254)', () => {
+    expect(sanitiseUrl('http://169.254.169.254/latest/meta-data/').valid).toBe(false);
+  });
+
+  it('rejects 0.0.0.0 URLs', () => {
+    expect(sanitiseUrl('http://0.0.0.0/').valid).toBe(false);
+  });
+
+  it('rejects internal and local domain suffixes', () => {
+    expect(sanitiseUrl('http://server.internal/api').valid).toBe(false);
+    expect(sanitiseUrl('http://device.local/status').valid).toBe(false);
+  });
+
   it('rejects empty strings', () => {
     expect(sanitiseUrl('').valid).toBe(false);
   });

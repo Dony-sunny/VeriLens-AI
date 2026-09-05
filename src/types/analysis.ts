@@ -56,6 +56,8 @@ export interface HiveProviderResult {
   generator: string | null;
   /** C2PA/provenance metadata if returned by Hive. */
   c2pa: Record<string, unknown> | null;
+  /** Safe diagnostic error message if request failed. */
+  error?: string | null;
 }
 
 export interface SightengineProviderResult {
@@ -66,6 +68,8 @@ export interface SightengineProviderResult {
   deepfakeScore: number | null;
   /** Generator attribution if reported by provider. */
   generator: string | null;
+  /** Safe diagnostic error message if request failed. */
+  error?: string | null;
 }
 
 export interface ProviderResults {

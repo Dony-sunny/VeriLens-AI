@@ -4,8 +4,8 @@
 //  file safety checks.
 // ─────────────────────────────────────────────
 
-/** Maximum allowed file size (100 MB). */
-export const MAX_FILE_SIZE_MB = 100;
+/** Maximum allowed file size in MB (4.5 MB to align with Vercel Serverless limits). */
+export const MAX_FILE_SIZE_MB = 4.5;
 
 /** Allowed MIME type prefixes. */
 const ALLOWED_MIME_PREFIXES = ['image/', 'audio/', 'video/'] as const;
@@ -13,8 +13,9 @@ const ALLOWED_MIME_PREFIXES = ['image/', 'audio/', 'video/'] as const;
 /** Allowed URL schemes (no javascript:, data:, etc.). */
 const ALLOWED_URL_SCHEMES = ['https:', 'http:'] as const;
 
-/** Dangerous hostname patterns (localhost, private IPs, etc.) */
-const BLOCKED_HOSTNAMES = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.0\.0\.0)/;
+/** Dangerous hostname patterns (localhost, private IPs, 169.254 link-local, cloud metadata, etc.) */
+const BLOCKED_HOSTNAMES = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.0\.0\.0|169\.254\.|::1|0:0:0:0:0:0:0:1|fe80:|fd00:|fc00:)/i;
+const BLOCKED_DOMAINS = /(\.local|\.internal|\.lan|\.home|\.localhost)$/i;
 
 export interface ValidationResult {
   valid: boolean;
@@ -87,7 +88,7 @@ export function sanitiseUrl(rawUrl: string): ValidationResult & { sanitised?: st
   }
 
   // Block private/loopback addresses (SSRF mitigation)
-  if (BLOCKED_HOSTNAMES.test(parsed.hostname)) {
+  if (BLOCKED_HOSTNAMES.test(parsed.hostname) || BLOCKED_DOMAINS.test(parsed.hostname)) {
     return {
       valid: false,
       error: 'This URL points to a private or local network address, which is not allowed.',

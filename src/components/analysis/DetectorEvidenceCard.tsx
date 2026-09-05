@@ -129,6 +129,13 @@ export function DetectorEvidenceCard({ result }: DetectorEvidenceCardProps) {
                 {hive?.c2pa ? 'Provenance information detected' : 'No provenance detected'}
               </span>
             </div>
+
+            {/* Error diagnostic message */}
+            {hive?.error && hive.status === 'failed' && (
+              <div className="mt-2 text-[11px] text-red-400/90 font-mono bg-red-500/10 border border-red-500/20 px-2 py-1 rounded">
+                {hive.error}
+              </div>
+            )}
           </div>
         </div>
 
@@ -186,6 +193,13 @@ export function DetectorEvidenceCard({ result }: DetectorEvidenceCardProps) {
                 {sightengine?.generator ?? 'None identified'}
               </span>
             </div>
+
+            {/* Error diagnostic message */}
+            {sightengine?.error && sightengine.status === 'failed' && (
+              <div className="mt-2 text-[11px] text-red-400/90 font-mono bg-red-500/10 border border-red-500/20 px-2 py-1 rounded">
+                {sightengine.error}
+              </div>
+            )}
 
             {/* Cross-Validation Status */}
             <div className="flex items-center justify-between text-xs">

@@ -62,9 +62,9 @@ async function callHive(
     deepfakeScore: null,
     generator: null,
     c2pa: null,
+    error: null,
   };
 
-  // Choose model by media type
   const aiModel =
     mediaType === 'video'
       ? 'ai-generated-video-detection'
@@ -74,7 +74,7 @@ async function callHive(
   async function callModel(model: string): Promise<unknown> {
     const form = new FormData();
     const fieldName = mediaType === 'video' ? 'video' : 'image';
-    form.append(fieldName, new Blob([fileBuffer], { type: mimeType }), 'upload');
+    form.append(fieldName, new Blob([fileBuffer], { type: mimeType }), 'media');
     form.append('model', model);
 
     const res = await fetch('https://api.thehive.ai/api/v2/task/sync', {
@@ -83,11 +83,30 @@ async function callHive(
       body: form,
       signal: createTimeoutSignal(),
     });
-    if (!res.ok) throw new Error(`Hive API returned ${res.status}`);
-    return res.json();
+
+    if (process.env['NODE_ENV'] !== 'production') {
+      console.log(`[VeriLens Debug] Hive HTTP status (${model}): ${res.status}`);
+    }
+
+    const text = await res.text();
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const parsed = JSON.parse(text) as Record<string, unknown>;
+        msg = (parsed['message'] as string) ?? msg;
+      } catch {
+        // ignore parse error
+      }
+      throw new Error(`Hive API error: ${msg}`);
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error('Hive returned malformed JSON');
+    }
   }
 
-  // Parse Hive response — extract the "yes" / "ai-generated" class score
   function parseHiveScore(data: unknown): number | null {
     try {
       const output = (data as Record<string, unknown>)['status'] as unknown[];
@@ -124,15 +143,14 @@ async function callHive(
         const dfData = await callModel(deepfakeModel);
         base.deepfakeScore = parseHiveScore(dfData);
       } catch {
-        // Deepfake model failure is non-fatal; keep aiGeneratedScore
         base.deepfakeScore = null;
       }
     }
 
     return base;
-  } catch {
-    // Full Hive failure — mark as failed, do not throw
-    return { ...base, status: 'failed' };
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : 'Hive request failed';
+    return { ...base, status: 'failed', error: errMsg };
   }
 }
 
@@ -151,8 +169,8 @@ async function callSightengine(
       : 'https://api.sightengine.com/1.0/check.json';
 
   const form = new FormData();
-  form.append('media', new Blob([fileBuffer], { type: mimeType }), 'upload');
-  form.append('models', 'ai-generated,deepfake');
+  form.append('media', new Blob([fileBuffer], { type: mimeType }), 'media');
+  form.append('models', 'genai,deepfake');
   form.append('api_user', apiUser);
   form.append('api_secret', apiSecret);
 
@@ -163,25 +181,48 @@ async function callSightengine(
       signal: createTimeoutSignal(),
     });
 
-    if (!res.ok) throw new Error(`Sightengine returned ${res.status}`);
-    const data = await res.json() as Record<string, unknown>;
-
-    if ((data['status'] as string) === 'failure') {
-      return { status: 'failed', aiGeneratedScore: null, deepfakeScore: null, generator: null };
+    if (process.env['NODE_ENV'] !== 'production') {
+      console.log(`[VeriLens Debug] Sightengine HTTP status: ${res.status}`);
     }
 
-    const aiRaw = (data['ai_generated'] as Record<string, number> | undefined)?.['score'] ?? null;
+    const data = (await res.json()) as Record<string, unknown>;
+
+    if ((data['status'] as string) === 'failure') {
+      const errObj = data['error'] as { message?: string; code?: number } | undefined;
+      const errMsg = errObj?.message ?? `Sightengine request failed (code ${errObj?.code ?? 'unknown'})`;
+      return {
+        status: 'failed',
+        aiGeneratedScore: null,
+        deepfakeScore: null,
+        generator: null,
+        error: errMsg,
+      };
+    }
+
+    const aiGenObj = (data['ai_generated'] ?? data['type']) as Record<string, unknown> | undefined;
+    const aiRaw =
+      (data['ai_generated'] as Record<string, number> | undefined)?.['score'] ??
+      (data['type'] as Record<string, number> | undefined)?.['ai_generated'] ??
+      (data['type'] as Record<string, number> | undefined)?.['deepfake'] ??
+      null;
     const dfRaw = (data['type'] as Record<string, number> | undefined)?.['deepfake'] ?? null;
 
     return {
       status: 'success',
       aiGeneratedScore: aiRaw !== null ? Math.round(aiRaw * 100) : null,
       deepfakeScore: dfRaw !== null ? Math.round(dfRaw * 100) : null,
-      generator:
-        (data['ai_generated'] as Record<string, unknown> | undefined)?.['generator'] as string ?? null,
+      generator: (aiGenObj?.['generator'] as string) ?? null,
+      error: null,
     };
-  } catch {
-    return { status: 'failed', aiGeneratedScore: null, deepfakeScore: null, generator: null };
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : 'Sightengine request failed';
+    return {
+      status: 'failed',
+      aiGeneratedScore: null,
+      deepfakeScore: null,
+      generator: null,
+      error: errMsg,
+    };
   }
 }
 
@@ -278,7 +319,7 @@ STRICT RULES:
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -323,11 +364,21 @@ async function parseMultipart(
   req: IncomingMessage,
   boundary: string
 ): Promise<{ fileBuffer: Buffer | null; mimeType: string; sourceUrl: string | null }> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req as AsyncIterable<Buffer>) {
-    chunks.push(Buffer.from(chunk));
+  let rawBody: Buffer;
+  const reqAny = req as unknown as { body?: unknown };
+
+  if (Buffer.isBuffer(reqAny.body)) {
+    rawBody = reqAny.body;
+  } else if (typeof reqAny.body === 'string') {
+    rawBody = Buffer.from(reqAny.body, 'binary');
+  } else {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req as AsyncIterable<Buffer>) {
+      chunks.push(Buffer.from(chunk));
+    }
+    rawBody = Buffer.concat(chunks);
   }
-  const rawBody = Buffer.concat(chunks);
+
   const sep = `--${boundary.trim()}`;
 
   let fileBuffer: Buffer | null = null;
@@ -350,12 +401,31 @@ async function parseMultipart(
 
     if (headersLower.includes('name="file"') || headersLower.includes('name="media"')) {
       const ctMatch = headerSection.match(/Content-Type:\s*([^\r\n]+)/i);
-      mimeType = ctMatch ? ctMatch[1].trim() : '';
+      const parsedCt = ctMatch ? ctMatch[1].trim() : '';
+
+      // Infer from filename if Content-Type header missing
+      const filenameMatch = headerSection.match(/filename="([^"]+)"/i);
+      const filename = filenameMatch ? filenameMatch[1] : '';
+
+      if (parsedCt) {
+        mimeType = parsedCt;
+      } else if (filename.endsWith('.png')) {
+        mimeType = 'image/png';
+      } else if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) {
+        mimeType = 'image/jpeg';
+      } else if (filename.endsWith('.webp')) {
+        mimeType = 'image/webp';
+      } else if (filename.endsWith('.mp4')) {
+        mimeType = 'video/mp4';
+      } else if (filename.endsWith('.mp3')) {
+        mimeType = 'audio/mpeg';
+      }
+
       fileBuffer = Buffer.from(body, 'binary');
     } else if (headersLower.includes('name="url"')) {
       sourceUrl = body.trim();
     } else if (headersLower.includes('name="mimetype"')) {
-      // Client hint for MIME type (used for URL submissions)
+      // Client hint for MIME type
       if (!mimeType) mimeType = body.trim();
     }
   }
@@ -391,6 +461,14 @@ export default async function handler(
 
   const creds = getCredentials();
   const contentType = ((req.headers as Record<string, string>)['content-type']) ?? '';
+
+  if (process.env['NODE_ENV'] !== 'production') {
+    console.log(`[VeriLens] /api/analyze called (${req.method})`);
+    console.log(`[VeriLens] Hive API Key: ${creds.hiveKey ? 'configured' : 'missing'}`);
+    console.log(`[VeriLens] Sightengine User: ${creds.seUser ? 'configured' : 'missing'}`);
+    console.log(`[VeriLens] Sightengine Secret: ${creds.seSecret ? 'configured' : 'missing'}`);
+    console.log(`[VeriLens] Gemini API Key: ${creds.geminiKey ? 'configured' : 'missing'}`);
+  }
 
   let fileBuffer: Buffer | null = null;
   let mimeType = '';
@@ -483,7 +561,7 @@ export default async function handler(
       metadata: baseMetadata,
       explanation: {
         summary:
-          'Live audio detection is not available in this deployment. Audio analysis requires additional API configuration.',
+          'Audio deepfake detection is not currently available in the live detector pipeline. Manual verification is recommended.',
         keySignals: ['Audio detection: unavailable'],
         uncertainty:
           'No detector results are available for this audio file. Manual review is required.',

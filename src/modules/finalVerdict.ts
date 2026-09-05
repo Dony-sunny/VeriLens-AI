@@ -262,11 +262,20 @@ function deriveScoresFromProviders(providers: ProviderResults): DetectionScores 
     ? Math.round(dfScores.reduce((a, b) => a + b, 0) / dfScores.length)
     : 0;
 
+  // Overall confidence:
+  // - High AI signal (>=70%): confidence is avgAi (e.g. 90% AI = 90% confidence in High Risk)
+  // - Low AI signal (<30%): confidence is 100 - avgAi (e.g. 0% AI = 100% confidence in Authentic)
+  // - Medium signal (30-69%): max(avgAi, 100 - avgAi)
+  let confidence = 0;
+  if (aiScores.length > 0) {
+    confidence = avgAi >= 50 ? avgAi : 100 - avgAi;
+  }
+
   return {
     aiGenerationProbability: avgAi,
     manipulationProbability: avgDf,
-    sourceConfidence: 0,   // Not applicable for live results
-    overallConfidence: aiScores.length > 0 ? avgAi : 0,
+    sourceConfidence: 0,
+    overallConfidence: confidence,
   };
 }
 
