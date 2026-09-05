@@ -4,8 +4,8 @@
 //  Used by api/analyze.ts.
 // ─────────────────────────────────────────────
 
-import { API_TIMEOUT_MS, MAX_FILE_SIZE } from './thresholds';
-import type { ServerMediaType } from './types';
+import { API_TIMEOUT_MS, MAX_FILE_SIZE } from './thresholds.js';
+import type { ServerMediaType } from './types.js';
 
 /** Supported MIME types and their media categories */
 const MIME_MAP: Record<string, ServerMediaType> = {

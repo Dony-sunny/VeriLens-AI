@@ -21,14 +21,14 @@ import {
   sanitizeSourceUrl,
   createTimeoutSignal,
   extractHostname,
-} from './_middleware';
+} from './_middleware.js';
 import {
   HIGH_SIGNAL_THRESHOLD,
   LOW_SIGNAL_THRESHOLD,
   DISAGREEMENT_DELTA,
   HIVE_API_TIMEOUT_MS,
   GEMINI_TIMEOUT_MS,
-} from './thresholds';
+} from './thresholds.js';
 import type {
   NormalizedAnalysisResult,
   HiveProviderResult,
@@ -36,7 +36,7 @@ import type {
   VerdictLevel,
   ExplanationResult,
   ServerMediaType,
-} from './types';
+} from './types.js';
 
 // ─── Credentials ──────────────────────────────
 // Credentials are read here, never logged, never returned to client.
@@ -200,7 +200,7 @@ async function callSightengine(
       : 'https://api.sightengine.com/1.0/check.json';
 
   const form = new FormData();
-  form.append('media', new Blob([fileBuffer], { type: mimeType }), 'media');
+  form.append('media', new Blob([new Uint8Array(fileBuffer)], { type: mimeType }), 'media');
   form.append('models', 'genai,deepfake');
   form.append('api_user', apiUser);
   form.append('api_secret', apiSecret);
@@ -365,10 +365,10 @@ STRICT RULES:
     if (!res.ok) return fallback;
 
     const data = await res.json() as Record<string, unknown>;
-    const candidates = data['candidates'] as unknown[];
-    const text: string =
-      ((candidates?.[0] as Record<string, unknown>)?.['content'] as Record<string, unknown>)
-        ?.['parts']?.[0]?.['text'] as string ?? '';
+    const candidates = data['candidates'] as Array<{
+      content?: { parts?: Array<{ text?: string }> };
+    }> | undefined;
+    const text = candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 
     // Strip markdown code fences if present
     const cleaned = text.replace(/```(?:json)?\n?|```\n?/g, '').trim();
