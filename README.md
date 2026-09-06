@@ -30,6 +30,20 @@ npm run build
 
 ---
 
+### Vercel deployment environment
+
+`.env.local` is used by the local Vite API plugin and is intentionally excluded from Git. Vercel does not receive it during a Git deployment. Add these variables in the Vercel project settings under **Settings -> Environment Variables**, with the target set to **Production**, then redeploy:
+
+```text
+HIVE_API_KEY=<Hive API key>
+SIGHTENGINE_API_USER=<Sightengine API user number>
+SIGHTENGINE_API_SECRET=<Sightengine API secret>
+GEMINI_API_KEY=<Gemini API key>
+ALLOWED_ORIGIN=https://<your-production-domain>
+```
+
+`SIGHTENGINE_API_USER` must be the numeric API user from the Sightengine dashboard, and `SIGHTENGINE_API_SECRET` must be its matching API secret. Website login credentials will produce `Incorrect API user or API secret`. Both variables must be added to the same Vercel environment and a new deployment must be created after changing them.
+
 ## 🏗️ Architecture & Data Flow
 
 VeriLens AI separates **Detection** from **Explanation** and uses a server-side architecture to keep credentials 100% secure:
