@@ -665,14 +665,23 @@ export default async function handler(
     deepfakeScore: null,
     generator: null,
   };
+  const sightengineConfigured = Boolean(creds.seUser && creds.seSecret);
+  const sightenginePartiallyConfigured = Boolean(creds.seUser) !== Boolean(creds.seSecret);
+  const missingSightengineCredential = sightenginePartiallyConfigured
+    ? 'Sightengine configuration is incomplete. Set both SIGHTENGINE_API_USER and SIGHTENGINE_API_SECRET in the same Vercel environment.'
+    : null;
 
   const [hiveResult, seResult] = await Promise.all([
     creds.hiveKey
       ? callHive(fileBuffer, mimeType, mediaType, creds.hiveKey, creds.geminiKey)
       : Promise.resolve(unavailableHive),
-    creds.seUser && creds.seSecret
-      ? callSightengine(fileBuffer, mimeType, mediaType, creds.seUser, creds.seSecret)
-      : Promise.resolve(unavailableSe),
+    sightengineConfigured
+      ? callSightengine(fileBuffer, mimeType, mediaType, creds.seUser!, creds.seSecret!)
+      : Promise.resolve(
+          missingSightengineCredential
+            ? { ...unavailableSe, status: 'failed' as const, error: missingSightengineCredential }
+            : unavailableSe
+        ),
   ]);
 
   // ── Evidence fusion ───────────────────────
