@@ -14,6 +14,16 @@
 //  ─ CORS restricted to configured origin
 // ─────────────────────────────────────────────
 
+// Disable Vercel's automatic body parser so we can read the raw
+// multipart/form-data stream ourselves. Without this, Vercel pre-consumes
+// the request body before our handler can read it, causing fileBuffer to
+// always be null and every analysis to fail.
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 import type { IncomingMessage, ServerResponse } from 'http';
 import {
   resolveMediaType,
@@ -42,8 +52,10 @@ import type {
 // Credentials are read here, never logged, never returned to client.
 
 function readSecret(name: string): string | null {
-  const value = process.env[name]?.trim();
-  return value || null;
+  const raw = process.env[name];
+  if (!raw) return null;
+  const cleaned = raw.trim().replace(/^["']|["']$/g, '').trim();
+  return cleaned || null;
 }
 
 function getCredentials() {
@@ -199,10 +211,12 @@ async function callSightengine(
   apiUser: string,
   apiSecret: string
 ): Promise<SightengineProviderResult> {
-  const endpoint =
+  const baseUrl =
     mediaType === 'video'
       ? 'https://api.sightengine.com/1.0/video/check-sync.json'
       : 'https://api.sightengine.com/1.0/check.json';
+
+  const endpoint = `${baseUrl}?api_user=${encodeURIComponent(apiUser)}&api_secret=${encodeURIComponent(apiSecret)}`;
 
   console.log('[VeriLens Debug] Sightengine request', {
     endpoint,
